@@ -1,4 +1,4 @@
-<#!
+<#
 .SYNOPSIS
   Remove all files uploaded to Google's Gemini API storage using the GEMINI_API_KEY.
 
@@ -31,6 +31,7 @@ param(
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
+    # ISO 8601 sortable timestamp format
     $timestamp = (Get-Date).ToString("s")
     Write-Host "[$timestamp] [$Level] $Message"
 }
