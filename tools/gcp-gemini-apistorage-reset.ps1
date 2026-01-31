@@ -31,7 +31,7 @@ param(
 
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
-    # ISO 8601 sortable timestamp format
+    # ISO 8601 sortable format (local time, no timezone): 2026-01-31T14:30:00
     $timestamp = (Get-Date).ToString("s")
     Write-Host "[$timestamp] [$Level] $Message"
 }
