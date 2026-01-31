@@ -111,6 +111,16 @@ try {
 
                 if ($DryRun) { continue }
 
+                # Security: Validate file name is present and doesn't contain path traversal
+                if ([string]::IsNullOrWhiteSpace($name)) {
+                    Write-Log "Skipping file with missing name: $displayId" "WARN"
+                    continue
+                }
+                if ($name -match '\.\./') {
+                    Write-Log "Skipping file with path traversal sequence: $displayId" "WARN"
+                    continue
+                }
+
                 # Build safe URL: escape each path segment but preserve slashes
                 $encodedName = Escape-PathSegments $name
                 $deleteUrl = "$BaseUrl/$encodedName"
