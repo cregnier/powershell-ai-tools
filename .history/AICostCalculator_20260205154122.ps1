@@ -1190,8 +1190,7 @@ function Generate-ComprehensiveSummary($dailyRows, $patternAnalysis, $recommenda
     
     # Calculate dual-window costs using the new function
     $currentDate = if ($dailyRows -and $dailyRows.Count -gt 0) { 
-        $lastDate = $dailyRows[-1].Date
-        if ($lastDate -is [datetime]) { $lastDate } else { [datetime]::ParseExact($lastDate, 'yyyy-MM-dd', $null) }
+        [datetime]::ParseExact($dailyRows[-1].Date, 'yyyy-MM-dd', $null) 
     } else { 
         Get-Date 
     }
@@ -1321,7 +1320,7 @@ function Calculate-DualWindowCosts {
     
     # Filter daily rows for current billing cycle
     $cycleRows = $DailyRows | Where-Object {
-        $rowDate = if ($_.Date -is [datetime]) { $_.Date } else { [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null) }
+        $rowDate = [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null)
         $rowDate -ge $cycleStart -and $rowDate -le $cycleEnd
     }
     
@@ -1338,10 +1337,7 @@ function Calculate-DualWindowCosts {
     
     # WINDOW 2: Calendar Month Overages (each month 1st to end)
     # Group by calendar month and calculate overage charges
-    $monthlyOverages = $DailyRows | Group-Object { 
-        $dt = if ($_.Date -is [datetime]) { $_.Date } else { [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null) }
-        $dt.ToString('yyyy-MM')
-    } | ForEach-Object {
+    $monthlyOverages = $DailyRows | Group-Object { ([datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null)).ToString('yyyy-MM') } | ForEach-Object {
         $monthKey = $_.Name
         $monthRows = $_.Group
         $monthTotal = ($monthRows | Measure-Object -Property Requests -Sum).Sum
@@ -1419,15 +1415,15 @@ function Convert-GitHubUsageReport($path) {
                 
                 if ($d) {
                     [PSCustomObject]@{
-                        Date = $d.Date  # Return DateTime.Date, not string
+                        Date = $d.ToString('yyyy-MM-dd')
                         Requests = [double]$_.Requests
                     }
                 }
             } | Where-Object { $_ -ne $null } | Sort-Object Date
             
             $totalCopilot = ($dailyAggregated | Measure-Object -Property Requests -Sum).Sum
-            $minDate = ($dailyAggregated | Select-Object -First 1).Date.ToString('yyyy-MM-dd')
-            $maxDate = ($dailyAggregated | Select-Object -Last 1).Date.ToString('yyyy-MM-dd')
+            $minDate = ($dailyAggregated | Select-Object -First 1).Date
+            $maxDate = ($dailyAggregated | Select-Object -Last 1).Date
             
             Write-Host "  ✓ Found $($dailyAggregated.Count) days with usage data" -ForegroundColor Green
             Write-Host "  ✓ Date range: $minDate to $maxDate" -ForegroundColor Green
@@ -1473,15 +1469,15 @@ function Convert-GitHubUsageReport($path) {
             
             if ($d) {
                 [PSCustomObject]@{
-                    Date = $d.Date  # Return DateTime.Date, not string
+                    Date = $d.ToString('yyyy-MM-dd')  # Return as string in yyyy-MM-dd format
                     Requests = [double]$totalRequests
                 }
             }
         } | Where-Object { $_ -ne $null } | Sort-Object Date
         
         $totalCopilot = ($dailyAggregated | Measure-Object -Property Requests -Sum).Sum
-        $minDate = ($dailyAggregated | Select-Object -First 1).Date.ToString('yyyy-MM-dd')
-        $maxDate = ($dailyAggregated | Select-Object -Last 1).Date.ToString('yyyy-MM-dd')
+        $minDate = ($dailyAggregated | Select-Object -First 1).Date
+        $maxDate = ($dailyAggregated | Select-Object -Last 1).Date
         
         Write-Host "  ✓ Converted GitHub usage report" -ForegroundColor Green
         Write-Host "  ✓ Found $($dailyAggregated.Count) days with Copilot usage" -ForegroundColor Green
@@ -1500,10 +1496,7 @@ function Generate-DailyReport([datetime]$cycleStart, [datetime]$cycleEnd, $daily
     $days = ([int]($cycleEnd.Date - $cycleStart.Date).TotalDays) + 1
     $dateRange = for ($i=0; $i -lt $days; $i++) { $cycleStart.AddDays($i).Date }
     $rowsByDate = @{}
-    foreach ($r in $dailyRows) { 
-        $dateKey = if ($r.Date -is [datetime]) { $r.Date.ToString('yyyy-MM-dd') } else { $r.Date }
-        $rowsByDate[$dateKey] = $r.Requests 
-    }
+    foreach ($r in $dailyRows) { $rowsByDate[$r.Date] = $r.Requests }
 
     $cumulative = 0.0
     $out = @()

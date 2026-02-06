@@ -1190,8 +1190,7 @@ function Generate-ComprehensiveSummary($dailyRows, $patternAnalysis, $recommenda
     
     # Calculate dual-window costs using the new function
     $currentDate = if ($dailyRows -and $dailyRows.Count -gt 0) { 
-        $lastDate = $dailyRows[-1].Date
-        if ($lastDate -is [datetime]) { $lastDate } else { [datetime]::ParseExact($lastDate, 'yyyy-MM-dd', $null) }
+        [datetime]::ParseExact($dailyRows[-1].Date, 'yyyy-MM-dd', $null) 
     } else { 
         Get-Date 
     }
@@ -1500,10 +1499,7 @@ function Generate-DailyReport([datetime]$cycleStart, [datetime]$cycleEnd, $daily
     $days = ([int]($cycleEnd.Date - $cycleStart.Date).TotalDays) + 1
     $dateRange = for ($i=0; $i -lt $days; $i++) { $cycleStart.AddDays($i).Date }
     $rowsByDate = @{}
-    foreach ($r in $dailyRows) { 
-        $dateKey = if ($r.Date -is [datetime]) { $r.Date.ToString('yyyy-MM-dd') } else { $r.Date }
-        $rowsByDate[$dateKey] = $r.Requests 
-    }
+    foreach ($r in $dailyRows) { $rowsByDate[$r.Date] = $r.Requests }
 
     $cumulative = 0.0
     $out = @()

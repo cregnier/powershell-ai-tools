@@ -1,0 +1,21 @@
+name: MCP generator tests
+
+on:
+  push:
+    paths:
+      - 'mcp_generator.ps1'
+      - 'scripts/**'
+  pull_request:
+    paths:
+      - 'mcp_generator.ps1'
+      - 'scripts/**'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run count tests
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_mcp_generator_counts.ps1 -Counts @(1,9)

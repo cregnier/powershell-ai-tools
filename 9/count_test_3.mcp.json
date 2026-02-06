@@ -1,0 +1,12 @@
+﻿{
+    "id":  "count_test_3",
+    "displayName":  "count_test_3",
+    "tags":  [
+                 "count",
+                 "test"
+             ],
+    "description":  "Count test 3",
+    "author":  "Tester",
+    "schemaVersion":  "1.0",
+    "body":  "You are an expert Azure security engineer. For each numbered requirement produce the following sections:\n- Summary: one-paragraph explanation of the requirement and risk/goal.\n- Action Plan: step-by-step concrete actions with exact commands (az/ARM/Bicep/PowerShell) or code snippets.\n- Files/Patches: list of files to create or patch; provide unified diffs where applicable.\n- Todos: markdown-ready entries for todos.md including file path and commands.\n- Tests/Verification: exact commands and checks to validate success.\n\nContext:\n\n1) Test item 1\n2) Test item 2\n3) Test item 3\r\n"
+}

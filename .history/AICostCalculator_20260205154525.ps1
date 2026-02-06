@@ -1190,8 +1190,7 @@ function Generate-ComprehensiveSummary($dailyRows, $patternAnalysis, $recommenda
     
     # Calculate dual-window costs using the new function
     $currentDate = if ($dailyRows -and $dailyRows.Count -gt 0) { 
-        $lastDate = $dailyRows[-1].Date
-        if ($lastDate -is [datetime]) { $lastDate } else { [datetime]::ParseExact($lastDate, 'yyyy-MM-dd', $null) }
+        [datetime]::ParseExact($dailyRows[-1].Date, 'yyyy-MM-dd', $null) 
     } else { 
         Get-Date 
     }

@@ -26,8 +26,7 @@ param(
     [string]$BillingOrg = '',
     [string]$BillingOutPath = './billing_invoices.json',
     [string]$ComprehensiveReportPath = './comprehensive_report.csv',
-    [int]$PatternAnalysisWindowDays = 7,
-    [switch]$ShowTimeline
+    [int]$PatternAnalysisWindowDays = 7
 )
 
     # If FetchMode was requested, pre-populate minimal interactive variables so the script
@@ -94,19 +93,6 @@ function Get-USFederalHolidays($year) {
     return $observed | Sort-Object
 }
 
-# Helper function to get effective date (respects AI_DATE override for testing)
-function Get-EffectiveDate {
-    if ($env:AI_DATE) {
-        try {
-            return [datetime]::ParseExact($env:AI_DATE, 'yyyy-MM-dd', $null)
-        } catch {
-            Write-Host "Warning: Invalid AI_DATE format ($env:AI_DATE), using real date" -ForegroundColor Yellow
-            return Get-Date
-        }
-    }
-    return Get-Date
-}
-
 # Config
 $BasePlanPrice = 10.00
 $OveragePricePerRequest = 0.04
@@ -127,37 +113,30 @@ $PlanNextName = 'NextTier'
 
 # MODE SELECTION MENU
 # Present user with 3 clear options for operation mode
-# Skip menu if FetchMode is explicitly enabled or if GitHub CSV is provided or if AI_MODE_OVERRIDE is set
-if (-not $env:AI_MODE_OVERRIDE -and -not $GitHubUsageReportCsv -and -not $FetchMode) {
-    Write-Host ""
+if (-not $env:AI_MODE_OVERRIDE) {
+    Write-Host "\n" -NoNewline
     Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host "  GitHub Copilot Cost Management Tool" -ForegroundColor Cyan
     Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Select operational mode:" -ForegroundColor White
-    Write-Host ""
+    Write-Host "\nSelect operational mode:\n" -ForegroundColor White
     Write-Host "  [1] Day-to-Day Interactive Mode" -ForegroundColor Green
     Write-Host "      Enter values manually for daily cost forecasting" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [2] Real Usage Analysis (GitHub Export CSV)" -ForegroundColor Yellow
+    Write-Host "\n  [2] Real Usage Analysis (GitHub Export CSV)" -ForegroundColor Yellow
     Write-Host "      Analyze actual usage data from GitHub billing export" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  [3] Test Mode (Automated Values)" -ForegroundColor Magenta
+    Write-Host "\n  [3] Test Mode (Automated Values)" -ForegroundColor Magenta
     Write-Host "      Use AI_* environment variables for testing" -ForegroundColor Gray
-    Write-Host ""
+    Write-Host "\n" -NoNewline
     
     $modeChoice = Read-Host "Enter choice (1, 2, or 3)"
     
     switch ($modeChoice) {
         "1" {
-            Write-Host ""
-            Write-Host "Starting Day-to-Day Interactive Mode..." -ForegroundColor Green
+            Write-Host "\nStarting Day-to-Day Interactive Mode..." -ForegroundColor Green
             $operationalMode = "interactive"
             # Will proceed with normal interactive flow below
         }
         "2" {
-            Write-Host ""
-            Write-Host "Starting Real Usage Analysis Mode..." -ForegroundColor Yellow
+            Write-Host "\nStarting Real Usage Analysis Mode..." -ForegroundColor Yellow
             if (-not $GitHubUsageReportCsv) {
                 Write-Host "Please provide GitHub usage report CSV path:" -NoNewline
                 $GitHubUsageReportCsv = Read-Host
@@ -170,8 +149,7 @@ if (-not $env:AI_MODE_OVERRIDE -and -not $GitHubUsageReportCsv -and -not $FetchM
             $FetchMode = $true  # Activate FetchMode for comprehensive analysis
         }
         "3" {
-            Write-Host ""
-            Write-Host "Starting Test Mode (using AI_* environment variables)..." -ForegroundColor Magenta
+            Write-Host "\nStarting Test Mode (using AI_* environment variables)..." -ForegroundColor Magenta
             $operationalMode = "test"
             # Load test values from environment
             if ($env:AI_START) { $startDt = Parse-HHMM $env:AI_START }
@@ -185,28 +163,15 @@ if (-not $env:AI_MODE_OVERRIDE -and -not $GitHubUsageReportCsv -and -not $FetchM
             if ($env:AI_TODAY_CURRENT) { $envToday = $env:AI_TODAY_CURRENT } else { $envToday = $null }
         }
         default {
-            Write-Host ""
-            Write-Host "ERROR: Invalid choice. Exiting." -ForegroundColor Red
+            Write-Host "\nERROR: Invalid choice. Exiting." -ForegroundColor Red
             exit 1
         }
     }
-} elseif ($GitHubUsageReportCsv) {
-    # Auto-select analysis mode when CSV parameter is provided
-    Write-Host ""
-    Write-Host "Auto-selecting Real Usage Analysis Mode (GitHub CSV provided)..." -ForegroundColor Yellow
-    $operationalMode = "analysis"
-    $FetchMode = $true
 } else {
     # Allow override for scripted/automated runs
     $operationalMode = $env:AI_MODE_OVERRIDE
     Write-Host "Mode override detected: $operationalMode" -ForegroundColor Cyan
-    if ($operationalMode -eq "analysis") {
-        $FetchMode = $true  # Activate FetchMode for analysis mode
-    }
 }
-
-# Skip all interactive prompts if in FetchMode (analysis mode)
-if (-not $FetchMode) {
 
 if (-not $startDt) {
     # Check for last-run inputs and offer to reuse them (preserve most config/month values,
@@ -332,8 +297,6 @@ if ($mode -eq '2') {
     if ($elapsedSoFar -gt 0) { $todayHourlyRate = $requestsToday / $elapsedSoFar; $projectedMonthlyFromTodayRate = $todayHourlyRate * $HoursPerWorkday * $workdaysInMonth }
 }
 
-} # End of interactive-only prompts section - close conditional opened near line 180
-
 # calculations
 $workedFullDays = [math]::Max(0, ([math]::Floor(($dayOfMonth-1)/1))) # simple: days before today
 $workedHoursSoFar = ($workedFullDays * $HoursPerWorkday) + $elapsedSoFar
@@ -383,500 +346,36 @@ function Get-Bar([double]$val, [double]$max) {
     return ('=' * $len) + (' ' * ($width - $len))
 }
 
-function Test-IsHoliday([datetime]$date) {
-    # Major US Holidays (fixed dates and common floating holidays)
-    $year = $date.Year
-    $month = $date.Month
-    $day = $date.Day
-    
-    # Fixed holidays
-    if ($month -eq 1 -and $day -eq 1) { return $true }  # New Year's Day
-    if ($month -eq 7 -and $day -eq 4) { return $true }  # Independence Day
-    if ($month -eq 12 -and $day -eq 25) { return $true } # Christmas
-    
-    # MLK Day (3rd Monday of January)
-    if ($month -eq 1 -and $date.DayOfWeek -eq 'Monday') {
-        $mondaysInJan = 1..31 | Where-Object { (Get-Date -Year $year -Month 1 -Day $_).DayOfWeek -eq 'Monday' }
-        if ($day -eq $mondaysInJan[2]) { return $true }
-    }
-    
-    # Memorial Day (last Monday of May)
-    if ($month -eq 5 -and $date.DayOfWeek -eq 'Monday') {
-        $nextWeek = $date.AddDays(7)
-        if ($nextWeek.Month -ne 5) { return $true }
-    }
-    
-    # Labor Day (1st Monday of September)
-    if ($month -eq 9 -and $date.DayOfWeek -eq 'Monday') {
-        $mondaysInSept = 1..30 | Where-Object { (Get-Date -Year $year -Month 9 -Day $_).DayOfWeek -eq 'Monday' }
-        if ($day -eq $mondaysInSept[0]) { return $true }
-    }
-    
-    # Thanksgiving (4th Thursday of November)
-    if ($month -eq 11 -and $date.DayOfWeek -eq 'Thursday') {
-        $thursdaysInNov = 1..30 | Where-Object { (Get-Date -Year $year -Month 11 -Day $_).DayOfWeek -eq 'Thursday' }
-        if ($day -eq $thursdaysInNov[3]) { return $true }
-    }
-    
-    return $false
-}
-
-function Test-IsBusinessDay([datetime]$date) {
-    # Business day = not weekend, not holiday
-    if ($date.DayOfWeek -eq 'Saturday' -or $date.DayOfWeek -eq 'Sunday') {
-        return $false
-    }
-    if (Test-IsHoliday $date) {
-        return $false
-    }
-    return $true
-}
-
-function Get-BusinessDaysInRange([datetime]$startDate, [datetime]$endDate) {
-    $businessDays = 0
-    $current = $startDate.Date
-    $end = $endDate.Date
-    
-    while ($current -le $end) {
-        if (Test-IsBusinessDay $current) {
-            $businessDays++
-        }
-        $current = $current.AddDays(1)
-    }
-    
-    return $businessDays
-}
-
-function Show-DualWindowDashboard {
-    param(
-        [Parameter(Mandatory=$true)]
-        $DualCosts,
-        
-        [Parameter(Mandatory=$true)]
-        [datetime]$CurrentDate,
-        
-        [Parameter(Mandatory=$true)]
-        $PatternAnalysis,
-        
-        [double]$BasePlanRequests = 300
-    )
-    
-    Write-Host ""
-    Write-Host "╔═══════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║           DUAL-WINDOW BILLING DASHBOARD - Visual Status              ║" -ForegroundColor Cyan
-    Write-Host "╚═══════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
-    
-    # Parse cycle dates
-    $cycleStart = [datetime]::ParseExact($DualCosts.BillingCycle.Start, 'yyyy-MM-dd', $null)
-    $cycleEnd = [datetime]::ParseExact($DualCosts.BillingCycle.End, 'yyyy-MM-dd', $null)
-    
-    # Calculate time remaining
-    $daysInCycle = ($cycleEnd - $cycleStart).Days + 1
-    $daysElapsed = ($CurrentDate - $cycleStart).Days + 1
-    $daysRemaining = ($cycleEnd - $CurrentDate).Days
-    $cycleProgress = if ($daysInCycle -gt 0) { ($daysElapsed / $daysInCycle) * 100 } else { 0 }
-    
-    # ═══ BILLING CYCLE WINDOW (21st-20th) ═══
-    Write-Host "  ┌─ BILLING CYCLE WINDOW (21st→20th) ─────────────────────────────────┐" -ForegroundColor Yellow
-    Write-Host "  │" -ForegroundColor Yellow -NoNewline
-    Write-Host " Cycle: $($DualCosts.BillingCycle.Start) → $($DualCosts.BillingCycle.End)" -ForegroundColor White -NoNewline
-    Write-Host "                      │" -ForegroundColor Yellow
-    Write-Host "  │" -ForegroundColor Yellow -NoNewline
-    Write-Host " Today: $($CurrentDate.ToString('yyyy-MM-dd'))" -ForegroundColor Cyan -NoNewline
-    Write-Host " │ " -ForegroundColor Yellow -NoNewline
-    Write-Host "$daysRemaining days until billing" -ForegroundColor $(if ($daysRemaining -le 5) { 'Red' } elseif ($daysRemaining -le 10) { 'Yellow' } else { 'Green' }) -NoNewline
-    Write-Host "                    │" -ForegroundColor Yellow
-    Write-Host "  │" -ForegroundColor Yellow -NoNewline
-    Write-Host "                                                                     │" -ForegroundColor Yellow
-    
-    # Timeline bar
-    $timelineWidth = 50
-    $posInCycle = [int](($daysElapsed / $daysInCycle) * $timelineWidth)
-    $timeline = ""
-    for ($i = 0; $i -lt $timelineWidth; $i++) {
-        if ($i -eq $posInCycle) { $timeline += "▼" }
-        elseif ($i -lt $posInCycle) { $timeline += "═" }
-        else { $timeline += "─" }
-    }
-    Write-Host "  │ " -ForegroundColor Yellow -NoNewline
-    Write-Host $timeline -ForegroundColor Cyan -NoNewline
-    Write-Host "       │" -ForegroundColor Yellow
-    Write-Host "  │ " -ForegroundColor Yellow -NoNewline
-    Write-Host "Day $daysElapsed of $daysInCycle" -ForegroundColor White -NoNewline
-    Write-Host " ($([math]::Round($cycleProgress, 1))% elapsed)" -ForegroundColor Gray -NoNewline
-    Write-Host (" " * (67 - "Day $daysElapsed of $daysInCycle ($([math]::Round($cycleProgress, 1))% elapsed)".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Yellow
-    Write-Host "  │" -ForegroundColor Yellow -NoNewline
-    Write-Host "                                                                     │" -ForegroundColor Yellow
-    
-    # Usage bar (clamp to 0-100% for display, but show actual percentage)
-    $usagePercent = $DualCosts.BillingCycle.PercentUsed
-    $usageBarWidth = 50
-    $displayPercent = [math]::Min(100, $usagePercent)  # Clamp for visual bar only
-    $usageFilled = [math]::Max(0, [int](($displayPercent / 100) * $usageBarWidth))
-    $usageFilled = [math]::Min($usageBarWidth, $usageFilled)  # Ensure doesn't exceed bar width
-    $usageColor = if ($usagePercent -ge 100) { 'Red' }
-                   elseif ($usagePercent -ge 90) { 'Red' }
-                   elseif ($usagePercent -ge 70) { 'Yellow' }
-                   else { 'Green' }
-    
-    Write-Host "  │ " -ForegroundColor Yellow -NoNewline
-    Write-Host "Usage: " -ForegroundColor White -NoNewline
-    Write-Host ("[" + ("█" * $usageFilled) + ("░" * ($usageBarWidth - $usageFilled)) + "]") -ForegroundColor $usageColor -NoNewline
-    Write-Host " │" -ForegroundColor Yellow
-    Write-Host "  │ " -ForegroundColor Yellow -NoNewline
-    Write-Host "$([math]::Round($DualCosts.BillingCycle.TotalRequests, 0)) / $BasePlanRequests requests" -ForegroundColor White -NoNewline
-    Write-Host " ($usagePercent%)" -ForegroundColor $usageColor -NoNewline
-    Write-Host " - " -ForegroundColor Gray -NoNewline
-    Write-Host "$($DualCosts.BillingCycle.AlertLevel)" -ForegroundColor $usageColor -NoNewline
-    Write-Host (" " * (67 - "$([math]::Round($DualCosts.BillingCycle.TotalRequests, 0)) / $BasePlanRequests requests ($usagePercent%) - $($DualCosts.BillingCycle.AlertLevel)".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Yellow
-    Write-Host "  └─────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-    Write-Host ""
-    
-    # ═══ MONTHLY OVERAGE WINDOW (Calendar Month) ═══
-    $currentMonth = $CurrentDate.ToString('yyyy-MM')
-    $currentMonthData = $DualCosts.MonthlyOverages | Where-Object { $_.Month -eq $currentMonth } | Select-Object -First 1
-    $currentMonthTotal = if ($currentMonthData) { $currentMonthData.TotalRequests } else { 0 }
-    $currentMonthOverage = if ($currentMonthData) { $currentMonthData.Overage } else { 0 }
-    $currentMonthCost = if ($currentMonthData) { $currentMonthData.Cost } else { 0 }
-    
-    $daysInMonth = [DateTime]::DaysInMonth($CurrentDate.Year, $CurrentDate.Month)
-    $dayOfMonth = $CurrentDate.Day
-    $monthProgress = ($dayOfMonth / $daysInMonth) * 100
-    
-    Write-Host "  ┌─ MONTHLY OVERAGE WINDOW (Calendar Month) ──────────────────────────┐" -ForegroundColor Magenta
-    Write-Host "  │" -ForegroundColor Magenta -NoNewline
-    Write-Host " Current Month: $($CurrentDate.ToString('MMMM yyyy'))" -ForegroundColor White -NoNewline
-    Write-Host (" " * (67 - " Current Month: $($CurrentDate.ToString('MMMM yyyy'))".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Magenta
-    Write-Host "  │" -ForegroundColor Magenta -NoNewline
-    Write-Host " Day $dayOfMonth of $daysInMonth" -ForegroundColor Cyan -NoNewline
-    Write-Host " ($([math]::Round($monthProgress, 1))% elapsed)" -ForegroundColor Gray -NoNewline
-    Write-Host (" " * (67 - " Day $dayOfMonth of $daysInMonth ($([math]::Round($monthProgress, 1))% elapsed)".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Magenta
-    Write-Host "  │" -ForegroundColor Magenta -NoNewline
-    Write-Host "                                                                     │" -ForegroundColor Magenta
-    
-    # Current month usage
-    $monthUsagePercent = if ($BasePlanRequests -gt 0) { ($currentMonthTotal / $BasePlanRequests) * 100 } else { 0 }
-    $monthBarWidth = 50
-    $monthFilled = [int](([Math]::Min($monthUsagePercent, 100) / 100) * $monthBarWidth)
-    $monthColor = if ($currentMonthOverage -gt 0) { 'Red' } else { 'Green' }
-    
-    Write-Host "  │ " -ForegroundColor Magenta -NoNewline
-    Write-Host "Usage: " -ForegroundColor White -NoNewline
-    Write-Host ("[" + ("█" * $monthFilled) + ("░" * ($monthBarWidth - $monthFilled)) + "]") -ForegroundColor $monthColor -NoNewline
-    Write-Host " │" -ForegroundColor Magenta
-    Write-Host "  │ " -ForegroundColor Magenta -NoNewline
-    Write-Host "$([math]::Round($currentMonthTotal, 0)) requests" -ForegroundColor White -NoNewline
-    if ($currentMonthOverage -gt 0) {
-        Write-Host " ($([math]::Round($currentMonthOverage, 0)) overage = `$$($currentMonthCost.ToString('N2')))" -ForegroundColor Red -NoNewline
-        $extraLen = " ($([math]::Round($currentMonthOverage, 0)) overage = `$$($currentMonthCost.ToString('N2')))".Length
-    } else {
-        Write-Host " (no overage)" -ForegroundColor Green -NoNewline
-        $extraLen = " (no overage)".Length
-    }
-    $baseLen = "$([math]::Round($currentMonthTotal, 0)) requests".Length
-    $padding = 67 - $baseLen - $extraLen
-    if ($padding -gt 0) { Write-Host (" " * $padding) -NoNewline }
-    Write-Host "│" -ForegroundColor Magenta
-    Write-Host "  └─────────────────────────────────────────────────────────────────────┘" -ForegroundColor Magenta
-    Write-Host ""
-    
-    # ═══ FORECAST & RECOMMENDATIONS ═══
-    Write-Host "  ┌─ FORECAST TO END OF WINDOWS ────────────────────────────────────────┐" -ForegroundColor Cyan
-    
-    # Project to end of billing cycle based on historical avg - use BUSINESS DAYS ONLY
-    $avgDaily = $PatternAnalysis.AverageDailyRequests
-    $businessDaysRemaining = Get-BusinessDaysInRange $CurrentDate $DualCosts.BillingCycle.End
-    $projectedCycleTotal = $DualCosts.BillingCycle.TotalRequests + ($avgDaily * $businessDaysRemaining)
-    $projectedCycleOverage = [Math]::Max(0, $projectedCycleTotal - $BasePlanRequests)
-    
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    Write-Host " Billing Cycle Forecast ($businessDaysRemaining business days @ $([math]::Round($avgDaily, 1))/day):" -ForegroundColor White -NoNewline
-    $forecastLabelLen = " Billing Cycle Forecast ($businessDaysRemaining business days @ $([math]::Round($avgDaily, 1))/day):".Length
-    Write-Host (" " * (67 - $forecastLabelLen)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    Write-Host "   • Projected Total: $([math]::Round($projectedCycleTotal, 0)) requests" -ForegroundColor White -NoNewline
-    Write-Host (" " * (67 - "   • Projected Total: $([math]::Round($projectedCycleTotal, 0)) requests".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    $cycleStatus = if ($projectedCycleTotal -le $BasePlanRequests) { "ON TRACK" } else { "WILL EXCEED" }
-    $cycleStatusColor = if ($projectedCycleTotal -le $BasePlanRequests) { 'Green' } else { 'Red' }
-    Write-Host "   • Status: " -ForegroundColor White -NoNewline
-    Write-Host $cycleStatus -ForegroundColor $cycleStatusColor -NoNewline
-    Write-Host " (quota: $BasePlanRequests)" -ForegroundColor Gray -NoNewline
-    Write-Host (" " * (67 - "   • Status: $cycleStatus (quota: $BasePlanRequests)".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    Write-Host "                                                                     │" -ForegroundColor Cyan
-    
-    # Project to end of current month
-    $daysRemainingMonth = $daysInMonth - $dayOfMonth
-    $projectedMonthTotal = $currentMonthTotal + ($avgDaily * $daysRemainingMonth)
-    $projectedMonthOverage = [Math]::Max(0, $projectedMonthTotal - $BasePlanRequests)
-    $projectedMonthCost = $projectedMonthOverage * 0.04
-    
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    Write-Host " Current Month Forecast:" -ForegroundColor White -NoNewline
-    Write-Host (" " * (67 - " Current Month Forecast:".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    Write-Host "   • Projected Total: $([math]::Round($projectedMonthTotal, 0)) requests" -ForegroundColor White -NoNewline
-    Write-Host (" " * (67 - "   • Projected Total: $([math]::Round($projectedMonthTotal, 0)) requests".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  │" -ForegroundColor Cyan -NoNewline
-    if ($projectedMonthOverage -gt 0) {
-        Write-Host "   • Projected Overage: `$$($projectedMonthCost.ToString('N2'))" -ForegroundColor Red -NoNewline
-    } else {
-        Write-Host "   • Projected Overage: `$0.00" -ForegroundColor Green -NoNewline
-    }
-    Write-Host (" " * (67 - "   • Projected Overage: `$$($projectedMonthCost.ToString('N2'))".Length)) -NoNewline
-    Write-Host "│" -ForegroundColor Cyan
-    Write-Host "  └─────────────────────────────────────────────────────────────────────┘" -ForegroundColor Cyan
-    Write-Host ""
-    
-    # ═══ ACTION ITEMS ═══
-    Write-Host "  📋 NEXT ACTIONS:" -ForegroundColor Yellow
-    
-    # Check if cycle has ended or is ending soon
-    $today = Get-EffectiveDate
-    $cycleEndDate = [datetime]::ParseExact($cycleEnd.ToString('yyyy-MM-dd'), 'yyyy-MM-dd', $null)
-    
-    if ($today.Date -gt $cycleEndDate) {
-        $daysSinceCycleEnd = ($today.Date - $cycleEndDate).Days
-        Write-Host "     • 🔄 Billing cycle ENDED $daysSinceCycleEnd day(s) ago - FETCH NEW REPORT NOW!" -ForegroundColor Red
-        Write-Host "     • 📥 New cycle started on $($cycleEndDate.AddDays(1).ToString('yyyy-MM-dd')) - update needed" -ForegroundColor Yellow
-    } elseif ($daysRemaining -le 5) {
-        Write-Host "     • 📅 Billing cycle ends soon ($daysRemaining days) - prepare for next period" -ForegroundColor Cyan
-        Write-Host "     • 📥 Plan to pull next usage report after: $($cycleEnd.ToString('yyyy-MM-dd'))" -ForegroundColor White
-    } else {
-        Write-Host "     • 📥 Pull next usage report after: $($cycleEnd.ToString('yyyy-MM-dd'))" -ForegroundColor White
-    }
-    
-    if ($DualCosts.BillingCycle.AlertLevel -eq 'CRITICAL' -or $DualCosts.BillingCycle.AlertLevel -eq 'OVER') {
-        Write-Host "     • ⚠️  ALERT: Reduce usage immediately to avoid exceeding quota" -ForegroundColor Red
-    }
-    if ($projectedMonthOverage -gt 0) {
-        Write-Host "     • ⚠️  Month trending toward overage - monitor daily usage" -ForegroundColor Yellow
-    }
-    Write-Host ""
-    
-    # Show visual timeline if requested
-    if ($ShowTimeline) {
-        Show-BillingTimeline -DualCosts $DualCosts -CycleStart $cycleStart -CycleEnd $cycleEnd
-    }
-}
-
-function Show-BillingTimeline {
-    param(
-        [Parameter(Mandatory=$true)]$DualCosts,
-        [Parameter(Mandatory=$true)][datetime]$CycleStart,
-        [Parameter(Mandatory=$true)][datetime]$CycleEnd
-    )
-    
-    Write-Host ""
-    Write-Host "╔═══════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║          GITHUB COPILOT BILLING - DUAL WINDOW TIMELINE & COSTS               ║" -ForegroundColor Cyan
-    Write-Host "╚═══════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-
-    Write-Host ""
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host "  CALENDAR TIMELINE" -ForegroundColor Yellow
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host ""
-
-    # Calculate months to show
-    $prevMonth = $CycleStart.AddMonths(-1)
-    $currentMonth = $CycleStart
-    $nextMonth = $CycleStart.AddMonths(1)
-    
-    $prevMonthName = $prevMonth.ToString('MMM yyyy')
-    $currentMonthName = $CycleStart.ToString('MMMM yyyy')
-    $nextMonthName = $nextMonth.ToString('MMM yyyy')
-    
-    # Timeline structure
-    Write-Host "  $prevMonthName         │  $currentMonthName                │  $nextMonthName" -ForegroundColor White
-    Write-Host "  ─────────────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
-    Write-Host "  1  ────────────  20│21 ─────────────────────────── $(($CycleStart.AddMonths(1).AddDays(-1)).Day)│ 1 ────────── 20│21" -ForegroundColor Gray
-    Write-Host "                     │                                  │                │" -ForegroundColor Gray
-    
-    # Show calendar month overage window
-    $currentMonthOverage = $DualCosts.MonthlyOverages | Where-Object { $_.Month -eq $CycleStart.ToString('yyyy-MM') }
-    if ($currentMonthOverage) {
-        Write-Host "                     │◄────── $($currentMonthOverage.TotalRequests) requests ─────►│                │" -ForegroundColor Magenta
-        Write-Host "                     │     $($currentMonthName) Calendar      │                │" -ForegroundColor Magenta
-        Write-Host "                     │        Month Overage             │                │" -ForegroundColor Magenta
-    }
-    Write-Host "                     │                                  │                │" -ForegroundColor Gray
-    
-    # Show billing cycle window
-    $cycleDays = ($CycleEnd - $CycleStart).Days + 1
-    Write-Host "                     ◄────────── 300 QUOTA ────────────────────────────►" -ForegroundColor Yellow
-    Write-Host "                     │      Billing Cycle ($cycleDays days)    │                │" -ForegroundColor Yellow
-    Write-Host "                     $($CycleStart.ToString('MMM dd')) ─────────────────────────► $($CycleEnd.ToString('MMM dd'))            │" -ForegroundColor Yellow
-    Write-Host "                     │                                  │                │" -ForegroundColor Gray
-    
-    # Show usage within cycle
-    $usedRequests = $DualCosts.BillingCycle.UsedRequests
-    $remainingRequests = $DualCosts.BillingCycle.RemainingRequests
-    $daysInFirstMonth = (($CycleStart.AddMonths(1).AddDays(-1)) - $CycleStart).Days + 1
-    $daysInSecondMonth = $cycleDays - $daysInFirstMonth
-    
-    Write-Host "                     │◄── $usedRequests used ──►                  │                │" -ForegroundColor Cyan
-    Write-Host "                     $($CycleStart.ToString('MMM dd'))-$(($CycleStart.AddMonths(1).AddDays(-1)).ToString('dd')) ($daysInFirstMonth days)                │                │" -ForegroundColor Cyan
-    Write-Host "                     │                  ◄─ $remainingRequests remaining for $($CycleEnd.AddMonths(-1).AddDays(1).ToString('MMM dd'))-$($CycleEnd.ToString('dd')) ───►│" -ForegroundColor Green
-    Write-Host "                     │                  ($daysInSecondMonth days left in cycle)          │" -ForegroundColor Green
-
-    Write-Host ""
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host "  BILLING WINDOW 1: CYCLE QUOTA (21st → 20th)" -ForegroundColor Yellow
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  Current Cycle: $($CycleStart.ToString('MMM dd, yyyy')) → $($CycleEnd.ToString('MMM dd, yyyy')) ($cycleDays days total)" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  ┌─ QUOTA USAGE ────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-    Write-Host "  │                                                                          │" -ForegroundColor Yellow
-    Write-Host "  │  Total Quota: 300 requests (for ENTIRE $cycleDays-day cycle)                    │" -ForegroundColor White
-    Write-Host "  │  Used so far: $usedRequests requests ($($CycleStart.ToString('MMM dd'))-$(($CycleStart.AddMonths(1).AddDays(-1)).ToString('dd')) = $daysInFirstMonth days)                        │" -ForegroundColor Cyan
-    Write-Host "  │  Remaining:   $remainingRequests requests ($($CycleEnd.AddMonths(-1).AddDays(1).ToString('MMM dd'))-$($CycleEnd.ToString('dd')) = $daysInSecondMonth days)                         │" -ForegroundColor Green
-    Write-Host "  │                                                                          │" -ForegroundColor Yellow
-    
-    # Progress bar (clamp to 0-100% for display)
-    $percentUsed = $DualCosts.BillingCycle.PercentUsed
-    $barWidth = 60
-    $displayPercent = [math]::Min(100, $percentUsed)  # Clamp for visual bar
-    $filledWidth = [math]::Max(0, [int]($displayPercent / 100.0 * $barWidth))
-    $filledWidth = [math]::Min($barWidth, $filledWidth)  # Ensure doesn't exceed bar width
-    $emptyWidth = $barWidth - $filledWidth
-    $progressBar = "[" + ("█" * $filledWidth) + ("░" * $emptyWidth) + "]"
-    Write-Host "  │  Progress: $progressBar     │" -ForegroundColor Yellow
-    
-    $daysElapsed = ((Get-Date) - $CycleStart).Days + 1
-    $percentTimeUsed = [math]::Round(($daysElapsed / $cycleDays) * 100, 1)
-    $percentTimeRemaining = 100 - $percentTimeUsed
-    Write-Host "  │            $($percentUsed)% of quota used with $($percentTimeRemaining)% of time remaining            │" -ForegroundColor Red
-    Write-Host "  │                                                                          │" -ForegroundColor Yellow
-    
-    $alertColor = switch($DualCosts.BillingCycle.AlertLevel) {
-        'CRITICAL' { 'Red' }
-        'WARNING' { 'Yellow' }
-        'NORMAL' { 'Cyan' }
-        default { 'White' }
-    }
-    $alertMessage = $DualCosts.BillingCycle.AlertMessage
-    Write-Host "  │  ⚠️  $alertMessage" -ForegroundColor $alertColor
-    Write-Host "  │                                                                          │" -ForegroundColor Yellow
-    Write-Host "  └──────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-
-    Write-Host ""
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host "  BILLING WINDOW 2: CALENDAR MONTH OVERAGES" -ForegroundColor Magenta
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Magenta
-    Write-Host ""
-    
-    # Show calendar month overage details
-    foreach ($monthOverage in $DualCosts.MonthlyOverages) {
-        $monthDate = [datetime]::ParseExact($monthOverage.Month, 'yyyy-MM', $null)
-        $monthName = $monthDate.ToString('MMMM yyyy')
-        $daysInMonth = [datetime]::DaysInMonth($monthDate.Year, $monthDate.Month)
-        
-        Write-Host "  ┌─ $monthName ($daysInMonth days) ──────────────────────────────────────────┐" -ForegroundColor Magenta
-        Write-Host "  │                                                                          │" -ForegroundColor Magenta
-        Write-Host "  │  Total Requests: $($monthOverage.TotalRequests)" -ForegroundColor White -NoNewline
-        Write-Host (" " * (67 - "  │  Total Requests: $($monthOverage.TotalRequests)".Length)) -NoNewline
-        Write-Host "│" -ForegroundColor Magenta
-        Write-Host "  │  Base Quota:     300 (included in `$10/month base plan)" -ForegroundColor Cyan -NoNewline
-        Write-Host (" " * (67 - "  │  Base Quota:     300 (included in `$10/month base plan)".Length)) -NoNewline
-        Write-Host "│" -ForegroundColor Magenta
-        Write-Host "  │  Overage:        $($monthOverage.Overage) requests" -ForegroundColor Yellow -NoNewline
-        Write-Host (" " * (67 - "  │  Overage:        $($monthOverage.Overage) requests".Length)) -NoNewline
-        Write-Host "│" -ForegroundColor Magenta
-        Write-Host "  │                                                                          │" -ForegroundColor Magenta
-        
-        if ($monthOverage.Overage -gt 0) {
-            Write-Host "  │  💰 Overage Cost: `$$($monthOverage.Cost.ToString('N2')) ($($monthOverage.Overage) × `$0.04/request)" -ForegroundColor Red -NoNewline
-        } else {
-            Write-Host "  │  ✓ No Overage: `$0.00" -ForegroundColor Green -NoNewline
-        }
-        Write-Host (" " * (67 - "  │  💰 Overage Cost: `$$($monthOverage.Cost.ToString('N2')) ($($monthOverage.Overage) × `$0.04/request)".Length)) -NoNewline
-        Write-Host "│" -ForegroundColor Magenta
-        Write-Host "  │                                                                          │" -ForegroundColor Magenta
-        Write-Host "  └──────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Magenta
-        Write-Host ""
-    }
-    
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host "  TOTAL COST BREAKDOWN" -ForegroundColor Cyan
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  Base Plan:         `$$($DualCosts.TotalCost.BasePlan.ToString('N2'))" -ForegroundColor White
-    
-    foreach ($monthOverage in $DualCosts.MonthlyOverages) {
-        if ($monthOverage.Overage -gt 0) {
-            $monthDate = [datetime]::ParseExact($monthOverage.Month, 'yyyy-MM', $null)
-            $monthName = $monthDate.ToString('MMM yyyy')
-            Write-Host "  $monthName Overage:  `$$($monthOverage.Cost.ToString('N2'))" -ForegroundColor Magenta
-        }
-    }
-    
-    Write-Host "  " + ("─" * 77) -ForegroundColor Cyan
-    Write-Host "  Total Cost:        `$$($DualCosts.TotalCost.GrandTotal.ToString('N2'))" -ForegroundColor Green
-    Write-Host ""
-    
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host "  CRITICAL CLARIFICATION" -ForegroundColor Yellow
-    Write-Host "═══════════════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  The 300 request quota is for the FULL billing cycle ($cycleDays days)," -ForegroundColor White
-    Write-Host "  NOT just for the first month's portion (Jan 21-31 = $daysInFirstMonth days)." -ForegroundColor White
-    Write-Host ""
-    Write-Host "  • You used $usedRequests requests in $daysInFirstMonth days = $($DualCosts.BillingCycle.PercentUsed)% of quota" -ForegroundColor Cyan
-    Write-Host "  • You have $remainingRequests requests for the next $daysInSecondMonth days" -ForegroundColor Green
-    Write-Host "  • At your current pace, you'll exceed quota before cycle ends" -ForegroundColor Red
-    Write-Host ""
-}
-
-
 # graph max
 if ($todayHourlyRate -ne $null) { $todayVal = [double]$todayHourlyRate } else { $todayVal = 0.0 }
 $graphMax = [math]::Max(1.0, [math]::Max($allowedHourlyRateForRemaining, [math]::Max($currentHourlyRate, $todayVal)))
 
-# output (only in interactive mode)
-if (-not $FetchMode) {
-    Write-Host "====================================" -ForegroundColor Cyan
-    Write-Host "==== Forecast Summary ====" -ForegroundColor Cyan
-    Write-Host "====================================" -ForegroundColor Cyan
-    if ($givenDate) {
-        Write-Host "Given date: $($givenDate.ToString('yyyy-MM-dd'))" -ForegroundColor Yellow
-    }
-    if ($startDt -and $currentRef) {
-        Write-Host "Start: $($startDt.ToString('HH:mm'))   Current: $($currentRef.ToString('HH:mm'))   Elapsed hrs: $([math]::Round($elapsedSoFar,2))" -ForegroundColor White
-    }
-    Write-Host "Requests month-to-date: $([math]::Round($requestsMonth,2))" -ForegroundColor Green
-    Write-Host "Requests today (computed): $([math]::Round($requestsToday,2))" -ForegroundColor Green
-    Write-Host "-- Projections --" -ForegroundColor DarkCyan
-    Write-Host "Current hourly rate (req/hr): $([math]::Round($currentHourlyRate,2))" -ForegroundColor Yellow
-    Write-Host "Projected monthly (from current): $([math]::Round($projectedMonthlyFromCurrentRate,0))" -ForegroundColor Yellow
-    if ($projectedMonthlyFromTodayRate -ne $null) { Write-Host "Today hourly rate (req/hr): $([math]::Round($todayHourlyRate,2))" -ForegroundColor Cyan; Write-Host "Projected monthly (from today): $([math]::Round($projectedMonthlyFromTodayRate,0))" -ForegroundColor Cyan }
-    Write-Host "Recommendation: keep average <= $([math]::Round($allowedHourlyRateForRemaining,2)) req/hr for remaining hours" -ForegroundColor Green
+# output
+Write-Host "====================================" -ForegroundColor Cyan
+Write-Host "==== Forecast Summary ====" -ForegroundColor Cyan
+Write-Host "====================================" -ForegroundColor Cyan
+Write-Host "Given date: $($givenDate.ToString('yyyy-MM-dd'))" -ForegroundColor Yellow
+Write-Host "Start: $($startDt.ToString('HH:mm'))   Current: $($currentRef.ToString('HH:mm'))   Elapsed hrs: $([math]::Round($elapsedSoFar,2))" -ForegroundColor White
+Write-Host "Requests month-to-date: $([math]::Round($requestsMonth,2))" -ForegroundColor Green
+Write-Host "Requests today (computed): $([math]::Round($requestsToday,2))" -ForegroundColor Green
+Write-Host "-- Projections --" -ForegroundColor DarkCyan
+Write-Host "Current hourly rate (req/hr): $([math]::Round($currentHourlyRate,2))" -ForegroundColor Yellow
+Write-Host "Projected monthly (from current): $([math]::Round($projectedMonthlyFromCurrentRate,0))" -ForegroundColor Yellow
+if ($projectedMonthlyFromTodayRate -ne $null) { Write-Host "Today hourly rate (req/hr): $([math]::Round($todayHourlyRate,2))" -ForegroundColor Cyan; Write-Host "Projected monthly (from today): $([math]::Round($projectedMonthlyFromTodayRate,0))" -ForegroundColor Cyan }
+Write-Host "Recommendation: keep average <= $([math]::Round($allowedHourlyRateForRemaining,2)) req/hr for remaining hours" -ForegroundColor Green
 
-    Write-Host ""; Write-Host "-- Rate Comparison (req/hr) --" -ForegroundColor DarkCyan
-    Write-Host "Legend: Allowed = allowed avg for remaining hours; Current = month avg; Today = today's run-rate" -ForegroundColor White
-    $allowedLine = ('Allowed  : [{0}] {1:N2} req/hr' -f (Get-Bar $allowedHourlyRateForRemaining $graphMax), $allowedHourlyRateForRemaining)
-    Write-Host $allowedLine -ForegroundColor Green
-    $currentLine = ('Current  : [{0}] {1:N2} req/hr' -f (Get-Bar $currentHourlyRate $graphMax), $currentHourlyRate)
-    Write-Host $currentLine -ForegroundColor Yellow
-    if ($todayHourlyRate -ne $null) {
-        $col='Cyan'; if ($todayHourlyRate -gt $allowedHourlyRateForRemaining) { $col='Red' }
-        $todayLine = ('Today    : [{0}] {1:N2} req/hr' -f (Get-Bar $todayHourlyRate $graphMax), $todayHourlyRate)
-        Write-Host $todayLine -ForegroundColor $col
-    }
-    Write-Host "====================================" -ForegroundColor Cyan
+Write-Host ""; Write-Host "-- Rate Comparison (req/hr) --" -ForegroundColor DarkCyan
+Write-Host "Legend: Allowed = allowed avg for remaining hours; Current = month avg; Today = today's run-rate" -ForegroundColor White
+$allowedLine = ('Allowed  : [{0}] {1:N2} req/hr' -f (Get-Bar $allowedHourlyRateForRemaining $graphMax), $allowedHourlyRateForRemaining)
+Write-Host $allowedLine -ForegroundColor Green
+$currentLine = ('Current  : [{0}] {1:N2} req/hr' -f (Get-Bar $currentHourlyRate $graphMax), $currentHourlyRate)
+Write-Host $currentLine -ForegroundColor Yellow
+if ($todayHourlyRate -ne $null) {
+    $col='Cyan'; if ($todayHourlyRate -gt $allowedHourlyRateForRemaining) { $col='Red' }
+    $todayLine = ('Today    : [{0}] {1:N2} req/hr' -f (Get-Bar $todayHourlyRate $graphMax), $todayHourlyRate)
+    Write-Host $todayLine -ForegroundColor $col
 }
+Write-Host "====================================" -ForegroundColor Cyan
 
 # --- New: timeline, alerts, export helpers ---
 function Get-CycleWindow([datetime]$refDate, [int]$cycleStartDay) {
@@ -1103,7 +602,7 @@ function Analyze-UsagePatterns($dailyRows, [int]$windowDays) {
     $highRiskDays = @()
     foreach ($row in $sorted) {
         if ($row.Requests -ge $p75) {
-            $highRiskDays += $row.Date
+            $highRiskDays += $row.Date.ToString('yyyy-MM-dd')
         }
     }
     
@@ -1185,17 +684,79 @@ function Get-TimingRecommendations($patternAnalysis, [datetime]$cycleStart, [int
     return $recommendations
 }
 
+function Calculate-DualWindowCosts($dailyRows, [int]$cycleStartDay, [int]$basePlanRequests, [double]$basePlanPrice, [double]$overagePrice) {
+    # Copilot has TWO different windows:
+    # 1. BILLING CYCLE (21st of month A to 20th of month B): Determines if you stay within 300 included requests
+    # 2. CALENDAR MONTH: Determines overage costs for requests beyond the monthly 300 quota
+    
+    if (-not $dailyRows) { return $null }
+    
+    $now = Get-Date
+    $currentYear = $now.Year
+    $currentMonth = $now.Month
+    
+    # Determine current billing cycle (e.g., Jan 21 - Feb 20)
+    if ($now.Day -ge $cycleStartDay) {
+        $cycleStart = Get-Date -Year $currentYear -Month $currentMonth -Day $cycleStartDay
+        $cycleEnd = $cycleStart.AddDays(30)  # Approx 31-day cycle
+    } else {
+        $cycleEnd = Get-Date -Year $currentYear -Month $currentMonth -Day ($cycleStartDay - 1)
+        $cycleStart = $cycleEnd.AddDays(-30)
+    }
+    
+    # BILLING CYCLE (21st-20th): Count requests to see if within 300 included
+    $cycleRows = $dailyRows | Where-Object { $_.Date -ge $cycleStart.Date -and $_.Date -le $cycleEnd.Date }
+    $cycleTotal = ($cycleRows | Measure-Object -Property Requests -Sum).Sum
+    if (-not $cycleTotal) { $cycleTotal = 0 }
+    
+    # CALENDAR MONTHS: Calculate overage costs per month
+    $monthlyOverages = @{}
+    $monthGroups = $dailyRows | Group-Object { $_.Date.ToString('yyyy-MM') }
+    
+    foreach ($monthGroup in $monthGroups) {
+        $monthKey = $monthGroup.Name
+        $monthTotal = ($monthGroup.Group | Measure-Object -Property Requests -Sum).Sum
+        $monthOverage = [math]::Max(0, $monthTotal - $basePlanRequests)
+        $monthOverageCost = $monthOverage * $overagePrice
+        
+        $monthlyOverages[$monthKey] = @{
+            Total = $monthTotal
+            Overage = $monthOverage
+            OverageCost = $monthOverageCost
+        }
+    }
+    
+    # Calculate costs
+    $totalOverageCost = ($monthlyOverages.Values | ForEach-Object { $_.OverageCost }) | Measure-Object -Sum | Select-Object -ExpandProperty Sum
+    if (-not $totalOverageCost) { $totalOverageCost = 0 }
+    
+    $cycleIncludedUsed = [math]::Min($cycleTotal, $basePlanRequests)
+    $cycleOverage = [math]::Max(0, $cycleTotal - $basePlanRequests)
+    
+    return [PSCustomObject]@{
+        # Billing Cycle Window (21st-20th)
+        CycleStart = $cycleStart
+        CycleEnd = $cycleEnd
+        CycleTotal = $cycleTotal
+        CycleIncludedUsed = $cycleIncludedUsed
+        CycleOverage = $cycleOverage
+        CyclePercentUsed = if ($basePlanRequests -gt 0) { $cycleTotal / $basePlanRequests } else { 0 }
+        
+        # Calendar Month Breakdown
+        MonthlyOverages = $monthlyOverages
+        TotalOverageCost = $totalOverageCost
+        TotalCost = $basePlanPrice + $totalOverageCost
+        
+        # Summary
+        BasePlanCost = $basePlanPrice
+    }
+}
+
 function Generate-ComprehensiveSummary($dailyRows, $patternAnalysis, $recommendations, [int]$basePlanRequests, [double]$basePlanPrice, [double]$overagePrice, [datetime]$cycleStart, [datetime]$cycleEnd, [string]$outPath, [int]$cycleStartDay) {
     $summary = @()
     
-    # Calculate dual-window costs using the new function
-    $currentDate = if ($dailyRows -and $dailyRows.Count -gt 0) { 
-        $lastDate = $dailyRows[-1].Date
-        if ($lastDate -is [datetime]) { $lastDate } else { [datetime]::ParseExact($lastDate, 'yyyy-MM-dd', $null) }
-    } else { 
-        Get-Date 
-    }
-    $dualCosts = Calculate-DualWindowCosts -DailyRows $dailyRows -CurrentDate $currentDate -BasePlanRequests $basePlanRequests -OveragePricePerRequest $overagePrice -BasePlanPrice $basePlanPrice
+    # Calculate dual-window costs
+    $dualCosts = Calculate-DualWindowCosts -dailyRows $dailyRows -cycleStartDay $cycleStartDay -basePlanRequests $basePlanRequests -basePlanPrice $basePlanPrice -overagePrice $overagePrice
     
     # Header section
     $summary += [PSCustomObject]@{
@@ -1210,13 +771,11 @@ function Generate-ComprehensiveSummary($dailyRows, $patternAnalysis, $recommenda
         Value = 'Dual-Window Billing'
         Details = "Base plan (300 requests): Billing cycle ${cycleStartDay}th-${cycleStartDay-1}th | Overages: Calendar month"
     }
-    if ($dualCosts.BillingCycle.Start -and $dualCosts.BillingCycle.End) {
-        $summary += [PSCustomObject]@{
-            Section = 'REPORT_INFO'
-            Metric = 'Current Billing Cycle'
-            Value = ('{0} to {1}' -f $dualCosts.BillingCycle.Start, $dualCosts.BillingCycle.End)
-            Details = 'Period for 300 included requests'
-        }
+    $summary += [PSCustomObject]@{
+        Section = 'REPORT_INFO'
+        Metric = 'Current Billing Cycle'
+        Value = ('{0} to {1}' -f $dualCosts.CycleStart.ToString('yyyy-MM-dd'), $dualCosts.CycleEnd.ToString('yyyy-MM-dd'))
+        Details = 'Period for 300 included requests'
     }
     
     # Usage metrics
@@ -1321,7 +880,7 @@ function Calculate-DualWindowCosts {
     
     # Filter daily rows for current billing cycle
     $cycleRows = $DailyRows | Where-Object {
-        $rowDate = if ($_.Date -is [datetime]) { $_.Date } else { [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null) }
+        $rowDate = [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null)
         $rowDate -ge $cycleStart -and $rowDate -le $cycleEnd
     }
     
@@ -1338,10 +897,7 @@ function Calculate-DualWindowCosts {
     
     # WINDOW 2: Calendar Month Overages (each month 1st to end)
     # Group by calendar month and calculate overage charges
-    $monthlyOverages = $DailyRows | Group-Object { 
-        $dt = if ($_.Date -is [datetime]) { $_.Date } else { [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null) }
-        $dt.ToString('yyyy-MM')
-    } | ForEach-Object {
+    $monthlyOverages = $DailyRows | Group-Object { ([datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null)).ToString('yyyy-MM') } | ForEach-Object {
         $monthKey = $_.Name
         $monthRows = $_.Group
         $monthTotal = ($monthRows | Measure-Object -Property Requests -Sum).Sum
@@ -1397,57 +953,6 @@ function Convert-GitHubUsageReport($path) {
         Write-Host "Converting GitHub usage report format..." -ForegroundColor DarkCyan
         $rawData = Import-Csv $path
         
-        # Detect CSV format by checking first row properties
-        $firstRow = $rawData | Select-Object -First 1
-        $hasGitHubFormat = ($firstRow.PSObject.Properties.Name -contains 'product') -and 
-                           ($firstRow.PSObject.Properties.Name -contains 'sku') -and 
-                           ($firstRow.PSObject.Properties.Name -contains 'date') -and 
-                           ($firstRow.PSObject.Properties.Name -contains 'quantity')
-        $hasSimpleFormat = ($firstRow.PSObject.Properties.Name -contains 'Date') -and 
-                           ($firstRow.PSObject.Properties.Name -contains 'Requests')
-        
-        if ($hasSimpleFormat) {
-            # Already in Date,Requests format - just validate and pass through
-            Write-Host "  ✓ Detected simple Date,Requests format" -ForegroundColor Green
-            $dailyAggregated = $rawData | ForEach-Object {
-                $d = $null
-                try { 
-                    $d = [datetime]::ParseExact($_.Date, 'yyyy-MM-dd', $null) 
-                } catch { 
-                    try { $d = [datetime]$_.Date } catch { $d = $null }
-                }
-                
-                if ($d) {
-                    [PSCustomObject]@{
-                        Date = $d.Date  # Return DateTime.Date, not string
-                        Requests = [double]$_.Requests
-                    }
-                }
-            } | Where-Object { $_ -ne $null } | Sort-Object Date
-            
-            $totalCopilot = ($dailyAggregated | Measure-Object -Property Requests -Sum).Sum
-            $minDate = ($dailyAggregated | Select-Object -First 1).Date.ToString('yyyy-MM-dd')
-            $maxDate = ($dailyAggregated | Select-Object -Last 1).Date.ToString('yyyy-MM-dd')
-            
-            Write-Host "  ✓ Found $($dailyAggregated.Count) days with usage data" -ForegroundColor Green
-            Write-Host "  ✓ Date range: $minDate to $maxDate" -ForegroundColor Green
-            Write-Host "  ✓ Total requests: $([math]::Round($totalCopilot, 2))" -ForegroundColor Green
-            
-            return $dailyAggregated
-        }
-        
-        if (-not $hasGitHubFormat) {
-            Write-Host "  ✗ Unrecognized CSV format" -ForegroundColor Red
-            Write-Host "    Expected either:" -ForegroundColor Yellow
-            Write-Host "      - GitHub export: product, sku, date, quantity" -ForegroundColor Yellow
-            Write-Host "      - Simple format: Date, Requests" -ForegroundColor Yellow
-            Write-Host "    Found columns: $($firstRow.PSObject.Properties.Name -join ', ')" -ForegroundColor Yellow
-            return $null
-        }
-        
-        # Process GitHub export format
-        Write-Host "  ✓ Detected GitHub export format" -ForegroundColor Green
-        
         # Filter for Copilot products only (both regular and coding agent)
         $copilotRows = $rawData | Where-Object { 
             $_.product -eq 'copilot' -and 
@@ -1455,7 +960,7 @@ function Convert-GitHubUsageReport($path) {
         }
         
         if (-not $copilotRows) {
-            Write-Host "  ✗ No Copilot usage found in GitHub report" -ForegroundColor Yellow
+            Write-Host "No Copilot usage found in GitHub report" -ForegroundColor Yellow
             return $null
         }
         
@@ -1473,20 +978,19 @@ function Convert-GitHubUsageReport($path) {
             
             if ($d) {
                 [PSCustomObject]@{
-                    Date = $d.Date  # Return DateTime.Date, not string
+                    Date = $d.Date
                     Requests = [double]$totalRequests
                 }
             }
         } | Where-Object { $_ -ne $null } | Sort-Object Date
         
         $totalCopilot = ($dailyAggregated | Measure-Object -Property Requests -Sum).Sum
-        $minDate = ($dailyAggregated | Select-Object -First 1).Date.ToString('yyyy-MM-dd')
-        $maxDate = ($dailyAggregated | Select-Object -Last 1).Date.ToString('yyyy-MM-dd')
+        $dateRange = ($dailyAggregated | Measure-Object -Property Date -Minimum -Maximum)
         
         Write-Host "  ✓ Converted GitHub usage report" -ForegroundColor Green
         Write-Host "  ✓ Found $($dailyAggregated.Count) days with Copilot usage" -ForegroundColor Green
-        Write-Host "  ✓ Date range: $minDate to $maxDate" -ForegroundColor Green
-        Write-Host "  ✓ Total requests: $([math]::Round($totalCopilot, 2))" -ForegroundColor Green
+        Write-Host "  ✓ Date range: $($dateRange.Minimum.ToString('yyyy-MM-dd')) to $($dateRange.Maximum.ToString('yyyy-MM-dd'))\" -ForegroundColor Green
+        Write-Host "  ✓ Total requests: $([math]::Round($totalCopilot, 2))\" -ForegroundColor Green
         
         return $dailyAggregated
         
@@ -1500,10 +1004,7 @@ function Generate-DailyReport([datetime]$cycleStart, [datetime]$cycleEnd, $daily
     $days = ([int]($cycleEnd.Date - $cycleStart.Date).TotalDays) + 1
     $dateRange = for ($i=0; $i -lt $days; $i++) { $cycleStart.AddDays($i).Date }
     $rowsByDate = @{}
-    foreach ($r in $dailyRows) { 
-        $dateKey = if ($r.Date -is [datetime]) { $r.Date.ToString('yyyy-MM-dd') } else { $r.Date }
-        $rowsByDate[$dateKey] = $r.Requests 
-    }
+    foreach ($r in $dailyRows) { $rowsByDate[$r.Date.ToString('yyyy-MM-dd')] = $r.Requests }
 
     $cumulative = 0.0
     $out = @()
@@ -1654,15 +1155,14 @@ if ($FetchMode) {
     Write-Host "Key Findings:" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor White
     
-    $currentDate = Get-EffectiveDate
+    $currentDate = Get-Date
     $dualCosts = Calculate-DualWindowCosts -DailyRows $dailyRows -CurrentDate $currentDate -BasePlanRequests $DefaultBasePlanRequests -OveragePricePerRequest $OveragePricePerRequest -BasePlanPrice $BasePlanPrice
     
-    Write-Host "  CURRENT BILLING CYCLE ($($dualCosts.BillingCycle.Start) to $($dualCosts.BillingCycle.End)):" -ForegroundColor Yellow
+    Write-Host "  BILLING CYCLE ($($dualCosts.BillingCycle.Start) to $($dualCosts.BillingCycle.End)):" -ForegroundColor Yellow
     Write-Host "    • Total Requests:     $([math]::Round($dualCosts.BillingCycle.TotalRequests, 2)) / $($dualCosts.BillingCycle.IncludedRequests) included" -ForegroundColor White
     Write-Host "    • Percent Used:       $($dualCosts.BillingCycle.PercentUsed)%" -ForegroundColor $(if ($dualCosts.BillingCycle.PercentUsed -ge 100) { 'Red' } elseif ($dualCosts.BillingCycle.PercentUsed -ge 90) { 'Yellow' } else { 'Green' })
     Write-Host "    • Remaining Quota:    $([math]::Round($dualCosts.BillingCycle.Remaining, 2)) requests" -ForegroundColor $(if ($dualCosts.BillingCycle.Remaining -le 0) { 'Red' } else { 'Green' })
     Write-Host "    • Alert Level:        $($dualCosts.BillingCycle.AlertLevel)" -ForegroundColor $(switch ($dualCosts.BillingCycle.AlertLevel) { 'OK' { 'Green' } 'WARNING' { 'Yellow' } 'CRITICAL' { 'Red' } 'OVER' { 'Red' } default { 'White' } })
-    Write-Host "    • Billing:            This cycle will be billed on or after $($dualCosts.BillingCycle.End)" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor White
     
     Write-Host "  MONTHLY OVERAGE COSTS (Calendar Month):" -ForegroundColor Yellow
@@ -1698,76 +1198,6 @@ if ($FetchMode) {
         Write-Host "    $($i + 1). $($topRecs[$i])" -ForegroundColor White
     }
     Write-Host "" -ForegroundColor White
-    
-    # Display Visual Dashboard
-    Show-DualWindowDashboard -DualCosts $dualCosts -CurrentDate $currentDate -PatternAnalysis $patternAnalysis -BasePlanRequests $DefaultBasePlanRequests
-    
-    # Display Visual Timeline (always show in FetchMode)
-    $ShowTimeline = $true
-    Show-BillingTimeline -DualCosts $dualCosts -CycleStart $dualCosts.BillingCycle.Start -CycleEnd $dualCosts.BillingCycle.End
-    
-    # Check if it's time to fetch a new report
-    $mostRecentDataDate = ($dailyRows | Sort-Object Date -Descending | Select-Object -First 1).Date
-    $mostRecentDate = $mostRecentDataDate  # Already a DateTime.Date from Import-DailyUsage
-    $todayEffective = (Get-EffectiveDate).Date
-    $daysSinceLastData = ($todayEffective - $mostRecentDate).Days
-    $currentCycleEnd = [datetime]::ParseExact($dualCosts.BillingCycle.End, 'yyyy-MM-dd', $null)
-    $currentMonthEnd = (Get-Date -Day 1).AddMonths(1).AddDays(-1).Date
-    
-    $needsUpdate = $false
-    $updateReasons = @()
-    
-    # Check if billing cycle has ended and we don't have data beyond it
-    if ($todayEffective -gt $currentCycleEnd -and $mostRecentDate -le $currentCycleEnd) {
-        $needsUpdate = $true
-        $updateReasons += "Billing cycle ended on $($dualCosts.BillingCycle.End) - NEW CYCLE data needed"
-    }
-    
-    # Check if we're in a new calendar month without current month data
-    if ($todayEffective.Month -ne $mostRecentDate.Month -or $todayEffective.Year -ne $mostRecentDate.Year) {
-        $needsUpdate = $true
-        $mostRecentMonthYear = $mostRecentDate.ToString('MMMM yyyy')
-        $currentMonthYear = $todayEffective.ToString('MMMM yyyy')
-        $updateReasons += "Currently in $currentMonthYear but data only through $mostRecentMonthYear"
-    }
-    
-    # Check if data is stale (more than 2 days old)
-    if ($daysSinceLastData -gt 2) {
-        $needsUpdate = $true
-        $updateReasons += "Data is $daysSinceLastData days old (last: $($mostRecentDate.ToString('yyyy-MM-dd')))"
-    }
-    
-    if ($needsUpdate) {
-        Write-Host "" -ForegroundColor White
-        Write-Host "╔═══════════════════════════════════════════════════════════════════════╗" -ForegroundColor Yellow
-        Write-Host "║                      ⏰ TIME TO FETCH NEW DATA ⏰                     ║" -ForegroundColor Yellow
-        Write-Host "╚═══════════════════════════════════════════════════════════════════════╝" -ForegroundColor Yellow
-        Write-Host "" -ForegroundColor White
-        Write-Host "  Your analysis may be OUTDATED:" -ForegroundColor Red
-        foreach ($reason in $updateReasons) {
-            Write-Host "    • $reason" -ForegroundColor Yellow
-        }
-        Write-Host "" -ForegroundColor White
-        Write-Host "  📥 FETCH A NEW GITHUB USAGE REPORT:" -ForegroundColor Cyan
-        Write-Host "     1. Go to: https://github.com/settings/copilot" -ForegroundColor White
-        Write-Host "     2. Click 'Usage' → 'Export CSV'" -ForegroundColor White
-        Write-Host "     3. Select date range covering through TODAY" -ForegroundColor White
-        Write-Host "     4. Re-run: .\AICostCalculator.ps1 -FetchMode -GitHubUsageReportCsv 'new_report.csv'" -ForegroundColor Cyan
-        Write-Host "" -ForegroundColor White
-        Write-Host "  💡 Fetching fresh data will:" -ForegroundColor Green
-        Write-Host "     ✓ Include the latest billing cycle (if ended)" -ForegroundColor White
-        Write-Host "     ✓ Calculate current month's overage charges" -ForegroundColor White
-        Write-Host "     ✓ Update forecasts with recent usage patterns" -ForegroundColor White
-        Write-Host "     ✓ Provide accurate quota tracking for active cycle" -ForegroundColor White
-        Write-Host "" -ForegroundColor White
-        Write-Host "═══════════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-        Write-Host "" -ForegroundColor White
-    } else {
-        Write-Host "" -ForegroundColor White
-        Write-Host "✓ Data is current (last updated: $($mostRecentDate.ToString('yyyy-MM-dd')))" -ForegroundColor Green
-        Write-Host "" -ForegroundColor White
-    }
-    
     Write-Host "Open the generated CSV files in Excel for detailed analysis." -ForegroundColor Cyan
     Write-Host "" -ForegroundColor White
     
@@ -1808,8 +1238,7 @@ try {
 
     Write-Host "\n-- Alert Summary --" -ForegroundColor DarkMagenta
     Write-Host ("Percent of base plan used: {0:P2}" -f $alerts.Percent) -ForegroundColor Yellow
-    $alertColor = if ($alerts.Level -eq 'OK') {'Green'} elseif ($alerts.Level -eq 'WARNING') {'Yellow'} elseif ($alerts.Level -eq 'CRITICAL') {'DarkYellow'} else {'Red'}
-    Write-Host ("Level: {0} - {1}" -f $alerts.Level, $alerts.Message) -ForegroundColor $alertColor
+    Write-Host ("Level: {0} - {1}" -f $alerts.Level, $alerts.Message) -ForegroundColor (if ($alerts.Level -eq 'OK') {'Green'} elseif ($alerts.Level -eq 'WARNING') {'Yellow'} elseif ($alerts.Level -eq 'CRITICAL') {'DarkYellow'} else {'Red'})
     Write-Host ("Recommendation: {0}" -f $recommend) -ForegroundColor Cyan
 
     if ($ExportCsv) {
@@ -1864,8 +1293,7 @@ try {
 }
 
 function Show-ExampleScenarios() {
-    Write-Host ""
-    Write-Host "=== Example Scenarios ===" -ForegroundColor Cyan
+    Write-Host "\n=== Example Scenarios ===" -ForegroundColor Cyan
 
     # Scenario 1: Steady usage (150/300) - OK
     $gdate = Get-Date -Year 2026 -Month 2 -Day 2
